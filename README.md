@@ -21,27 +21,9 @@ Before you begin, ensure that the following prerequisites are met:
 
 * An AWS account/subscription with sufficient permissions to provision EKS, FSxN, VPC, subnets and other constructs required.
 
-## Solution Architecture
+## Solution Architecture and Deployment Guide
 
-architecture-placeholder
-
-Note: The solution is provided as-is. Please test before deploying to production
-
-## Variable Description
-
-variable-table-placeholder
-
-## Deployment Steps
-
-1. Clone the repository:
-
-``` git clone https://github.com/NetApp-Automation/EKS-FSxN-Trident-Automation.git```
-
-2. Navigate into the cloned folder:
-
-``` cd EKS-FSxN-Trident-Automation/```
-
-More steps to followe
+The documentation for the solution architecture used and the deployment guidelines are available at link-here
 
 
 ## License
