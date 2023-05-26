@@ -1,0 +1,1569 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploys an EKS cluster, FSxN Filesystem and sets up Astra Trident for dynamic volume provisioning on EKS
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Basic configuration
+        Parameters:
+          - AvailabilityZones
+          - RemoteAccessCIDR
+          - KeyPairName
+          - PerAccountSharedResources
+          - PerRegionSharedResources
+      - Label:
+          default: VPC network configuration
+        Parameters:
+          - NumberOfAZs
+          - VPCCIDR
+          - PrivateSubnet1CIDR
+          - PrivateSubnet2CIDR
+          - PrivateSubnet3CIDR
+          - PublicSubnet1CIDR
+          - PublicSubnet2CIDR
+          - PublicSubnet3CIDR
+      - Label:
+          default: Amazon EKS configuration
+        Parameters:
+          - EKSClusterName
+          - EKSPublicAccessEndpoint
+          - FargateNamespaces
+          - FargateLabels
+      - Label:
+          default: Default EKS node group configuration
+        Parameters:
+          - NodeInstanceType
+          - NumberOfNodes
+          - MaxNumberOfNodes
+          - NodeGroupOS
+          - NodeGroupType
+          - NodeInstanceFamily
+      - Label:
+          default: Kubernetes add-ins
+        Parameters:
+          - ClusterAutoScaler
+          - PrometheusIntegration
+          - GrafanaIntegration
+      - Label:
+          default: AWS Quick Start configuration
+        Parameters:
+          - QSS3BucketName
+          - QSS3KeyPrefix
+          - QSS3BucketRegion
+      - Label:
+          default: FSxN configuration
+        Parameters:
+          - StorageCapacity
+          - OntapPassword
+    ParameterLabels:
+      OntapPassword:
+        default: Password for FSxN fsxadmin user
+      AvailabilityZones:
+        default: Availability Zones
+      KeyPairName:
+        default: SSH key name
+      PrivateSubnet1CIDR:
+        default: Private subnet 1 CIDR
+      PrivateSubnet2CIDR:
+        default: Private subnet 2 CIDR
+      PrivateSubnet3CIDR:
+        default: Private subnet 3 CIDR
+      PublicSubnet1CIDR:
+        default: Public subnet 1 CIDR
+      PublicSubnet2CIDR:
+        default: Public subnet 2 CIDR
+      PublicSubnet3CIDR:
+        default: Public subnet 3 CIDR
+      QSS3BucketName:
+        default: Quick Start S3 bucket name
+      QSS3KeyPrefix:
+        default: Quick Start S3 key prefix
+      QSS3BucketRegion:
+        default: Quick Start S3 bucket Region
+      RemoteAccessCIDR:
+        default: Allowed external access CIDR
+      VPCCIDR:
+        default: VPC CIDR
+      NodeInstanceType:
+        default: Instance type
+      NumberOfNodes:
+        default: Number of nodes
+      MaxNumberOfNodes:
+        default: Maximum number of nodes
+      ClusterAutoScaler:
+        default: Cluster autoscaler
+      NumberOfAZs:
+        default: Number of Availability Zones
+      EKSPublicAccessEndpoint:
+        default: EKS public access endpoint
+      FargateNamespaces:
+        default: Fargate namespaces
+      FargateLabels:
+        default: Fargate labels
+      EKSClusterName:
+        default: EKS cluster name
+      PerAccountSharedResources:
+        default: Per-account shared resources
+      PerRegionSharedResources:
+        default: Per-Region shared resources
+      NodeGroupType:
+        default: Node group type
+      NodeInstanceFamily:
+        default: Node instance family
+      NodeGroupOS:
+        default: Node group OS
+      PrometheusIntegration:
+        default: Prometheus integration
+      GrafanaIntegration:
+        default: Grafana integration
+      StorageCapacity:
+        default: Storage capacity
+Parameters:
+  AvailabilityZones:
+    Description: List of Availability Zones to use for the subnets in the VPC. Three
+      Availability Zones are used for this deployment.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+  # NOTE: Don't change the type of KeyPairName parameter back to AWS::EC2::KeyPair::KeyName.
+  # String type is intentional as it enables default (empty) value. By using defaults, we
+  # promote AWS Systems Manager Session Manager service, which is a recommended way
+  # to connect to EC2 instances.
+  KeyPairName:
+    Description: Name of an existing key pair, which allows you to securely connect to your instance after it launches.
+      Leave empty to proceed without a key pair. You would need to use AWS Systems Manager Session Manager to connect to the provisioned EC2 instances.
+    Type: String
+    Default: ""
+  PrivateSubnet1CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.0.0/19
+    Description: CIDR block for private subnet 1, located in Availability Zone 1.
+    Type: String
+  PrivateSubnet2CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.32.0/19
+    Description: CIDR block for private subnet 2, located in Availability Zone 2.
+    Type: String
+  PrivateSubnet3CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.64.0/19
+    Description: CIDR block for private subnet 3, located in Availability Zone 3.
+    Type: String
+  PublicSubnet1CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.128.0/20
+    Description: CIDR block for the public (DMZ) subnet 1, located in Availability
+      Zone 1.
+    Type: String
+  PublicSubnet2CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.144.0/20
+    Description: CIDR block for the public (DMZ) subnet 2, located in Availability
+      Zone 2.
+    Type: String
+  PublicSubnet3CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.160.0/20
+    Description: CIDR block for the public (DMZ) subnet 3, located in Availability
+      Zone 3.
+    Type: String
+  QSS3BucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    ConstraintDescription: Quick Start bucket name can include numbers, lowercase
+      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
+      (-).
+    Default: aws-quickstart
+    Description: S3 bucket name for the Quick Start assets. This string can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start
+      or end with a hyphen (-).
+    Type: String
+  QSS3KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/.]*$
+    ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
+      uppercase letters, hyphens (-), periods (.) and forward slash (/).
+    Default: quickstart-amazon-eks/
+    Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-), periods (.) and
+      forward slash (/).
+    Type: String
+  QSS3BucketRegion:
+    Default: 'us-east-1'
+    Description: Region where the Quick Start S3 bucket (QSS3BucketName) is
+      hosted. When using your own bucket, you must specify this value.
+    Type: String
+  RemoteAccessCIDR:
+    Type: String
+    Description: >-
+      Trusted IPv4 CIDR block that is permitted remote access to your instances
+      if desired in addition to AWS Systems Manager (SSM) access.
+    AllowedPattern: ^(disabled-onlyssmaccess|(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2])))$
+    ConstraintDescription: >-
+      CIDR block parameter must be disabled-onlyssmaccess or in the form
+      x.x.x.x/x.
+    Default: 0.0.0.0/0
+  EKSPublicAccessEndpoint:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
+    Description: Configure access to the Kubernetes API server endpoint from outside of your VPC.
+  VPCCIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC.
+    Type: String
+  NodeInstanceType:
+    Default: t3.medium
+    AllowedValues:
+      - a1.medium
+      - a1.large
+      - a1.xlarge
+      - a1.2xlarge
+      - a1.4xlarge
+      - a1.metal
+      - c1.medium
+      - c1.xlarge
+      - c3.large
+      - c3.xlarge
+      - c3.2xlarge
+      - c3.4xlarge
+      - c3.8xlarge
+      - c4.large
+      - c4.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - c5.large
+      - c5.xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.9xlarge
+      - c5.12xlarge
+      - c5.18xlarge
+      - c5.24xlarge
+      - c5.metal
+      - c5a.large
+      - c5a.xlarge
+      - c5a.2xlarge
+      - c5a.4xlarge
+      - c5a.8xlarge
+      - c5a.12xlarge
+      - c5a.16xlarge
+      - c5a.24xlarge
+      - c5ad.large
+      - c5ad.xlarge
+      - c5ad.2xlarge
+      - c5ad.4xlarge
+      - c5ad.8xlarge
+      - c5ad.12xlarge
+      - c5ad.16xlarge
+      - c5ad.24xlarge
+      - c5d.large
+      - c5d.xlarge
+      - c5d.2xlarge
+      - c5d.4xlarge
+      - c5d.9xlarge
+      - c5d.12xlarge
+      - c5d.18xlarge
+      - c5d.24xlarge
+      - c5d.metal
+      - c5n.large
+      - c5n.xlarge
+      - c5n.2xlarge
+      - c5n.4xlarge
+      - c5n.9xlarge
+      - c5n.18xlarge
+      - c5n.metal
+      - c6a.large
+      - c6a.xlarge
+      - c6a.2xlarge
+      - c6a.4xlarge
+      - c6a.8xlarge
+      - c6a.12xlarge
+      - c6a.16xlarge
+      - c6a.24xlarge
+      - c6a.32xlarge
+      - c6a.48xlarge
+      - c6a.metal
+      - c6g.medium
+      - c6g.large
+      - c6g.xlarge
+      - c6g.2xlarge
+      - c6g.4xlarge
+      - c6g.8xlarge
+      - c6g.12xlarge
+      - c6g.16xlarge
+      - c6g.metal
+      - c6gd.medium
+      - c6gd.large
+      - c6gd.xlarge
+      - c6gd.2xlarge
+      - c6gd.4xlarge
+      - c6gd.8xlarge
+      - c6gd.12xlarge
+      - c6gd.16xlarge
+      - c6gd.metal
+      - c6gn.medium
+      - c6gn.large
+      - c6gn.xlarge
+      - c6gn.2xlarge
+      - c6gn.4xlarge
+      - c6gn.8xlarge
+      - c6gn.12xlarge
+      - c6gn.16xlarge
+      - c6gn.metal
+      - c7g.medium
+      - c7g.large
+      - c7g.xlarge
+      - c7g.2xlarge
+      - c7g.4xlarge
+      - c7g.8xlarge
+      - c7g.12xlarge
+      - c7g.16xlarge
+      - c6i.large
+      - c6i.xlarge
+      - c6i.2xlarge
+      - c6i.4xlarge
+      - c6i.8xlarge
+      - c6i.12xlarge
+      - c6i.16xlarge
+      - c6i.24xlarge
+      - c6i.32xlarge
+      - c6i.metal
+      - c6id.medium
+      - c6id.large
+      - c6id.xlarge
+      - c6id.2xlarge
+      - c6id.4xlarge
+      - c6id.8xlarge
+      - c6id.12xlarge
+      - c6id.16xlarge
+      - c6id.24xlarge
+      - c6id.32xlarge
+      - c6id.metal
+      - cc2.8xlarge
+      - d2.xlarge
+      - d2.2xlarge
+      - d2.4xlarge
+      - d2.8xlarge
+      - d3.xlarge
+      - d3.2xlarge
+      - d3.4xlarge
+      - d3.8xlarge
+      - d3en.xlarge
+      - d3en.2xlarge
+      - d3en.4xlarge
+      - d3en.6xlarge
+      - d3en.8xlarge
+      - d3en.12xlarge
+      - f1.2xlarge
+      - f1.4xlarge
+      - f1.16xlarge
+      - g2.2xlarge
+      - g2.8xlarge
+      - g3.4xlarge
+      - g3.8xlarge
+      - g3.16xlarge
+      - g3s.xlarge
+      - g4ad.xlarge
+      - g4ad.2xlarge
+      - g4ad.4xlarge
+      - g4ad.8xlarge
+      - g4ad.12xlarge
+      - g4ad.16xlarge
+      - g4ad.metal
+      - g4dn.xlarge
+      - g4dn.2xlarge
+      - g4dn.4xlarge
+      - g4dn.8xlarge
+      - g4dn.12xlarge
+      - g4dn.16xlarge
+      - g4dn.metal
+      - g5.xlarge
+      - g5.2xlarge
+      - g5.4xlarge
+      - g5.8xlarge
+      - g5.12xlarge
+      - g5.16xlarge
+      - g5.24xlarge
+      - g5.48xlarge
+      - g5g.xlarge
+      - g5g.2xlarge
+      - g5g.4xlarge
+      - g5g.8xlarge
+      - g5g.16xlarge
+      - g5g.metal
+      - h1.2xlarge
+      - h1.4xlarge
+      - h1.8xlarge
+      - h1.16xlarge
+      - i2.xlarge
+      - i2.2xlarge
+      - i2.4xlarge
+      - i2.8xlarge
+      - i3.large
+      - i3.xlarge
+      - i3.2xlarge
+      - i3.4xlarge
+      - i3.8xlarge
+      - i3.16xlarge
+      - i3.metal
+      - i3en.large
+      - i3en.xlarge
+      - i3en.2xlarge
+      - i3en.3xlarge
+      - i3en.6xlarge
+      - i3en.12xlarge
+      - i3en.24xlarge
+      - i3en.metal
+      - i4i.large
+      - i4i.xlarge
+      - i4i.2xlarge
+      - i4i.4xlarge
+      - i4i.8xlarge
+      - i4i.16xlarge
+      - i4i.32xlarge
+      - i4i.metal
+      - im4gn.large
+      - im4gn.xlarge
+      - im4gn.2xlarge
+      - im4gn.4xlarge
+      - im4gn.8xlarge
+      - im4gn.16xlarge
+      - inf1.xlarge
+      - inf1.2xlarge
+      - inf1.6xlarge
+      - inf1.24xlarge
+      - is4gen.medium
+      - is4gen.large
+      - is4gen.xlarge
+      - is4gen.2xlarge
+      - is4gen.4xlarge
+      - is4gen.8xlarge
+      - m1.small
+      - m1.medium
+      - m1.large
+      - m1.xlarge
+      - m2.xlarge
+      - m2.2xlarge
+      - m2.4xlarge
+      - m3.medium
+      - m3.large
+      - m3.xlarge
+      - m3.2xlarge
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.8xlarge
+      - m5.12xlarge
+      - m5.16xlarge
+      - m5.24xlarge
+      - m5.metal
+      - m5a.large
+      - m5a.xlarge
+      - m5a.2xlarge
+      - m5a.4xlarge
+      - m5a.8xlarge
+      - m5a.12xlarge
+      - m5a.16xlarge
+      - m5a.24xlarge
+      - m5ad.large
+      - m5ad.xlarge
+      - m5ad.2xlarge
+      - m5ad.4xlarge
+      - m5ad.8xlarge
+      - m5ad.12xlarge
+      - m5ad.16xlarge
+      - m5ad.24xlarge
+      - m5d.large
+      - m5d.xlarge
+      - m5d.2xlarge
+      - m5d.4xlarge
+      - m5d.8xlarge
+      - m5d.12xlarge
+      - m5d.16xlarge
+      - m5d.24xlarge
+      - m5d.metal
+      - m5dn.large
+      - m5dn.xlarge
+      - m5dn.2xlarge
+      - m5dn.4xlarge
+      - m5dn.8xlarge
+      - m5dn.12xlarge
+      - m5dn.16xlarge
+      - m5dn.24xlarge
+      - m5dn.metal
+      - m5n.large
+      - m5n.xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m5n.8xlarge
+      - m5n.12xlarge
+      - m5n.16xlarge
+      - m5n.24xlarge
+      - m5n.metal
+      - m5zn.large
+      - m5zn.xlarge
+      - m5zn.2xlarge
+      - m5zn.4xlarge
+      - m5zn.8xlarge
+      - m5zn.12xlarge
+      - m5zn.16xlarge
+      - m5zn.24xlarge
+      - m5zn.metal
+      - m6a.large
+      - m6a.xlarge
+      - m6a.2xlarge
+      - m6a.4xlarge
+      - m6a.8xlarge
+      - m6a.12xlarge
+      - m6a.16xlarge
+      - m6a.24xlarge
+      - m6a.32xlarge
+      - m6a.48xlarge
+      - m6a.metal
+      - m6g.medium
+      - m6g.large
+      - m6g.xlarge
+      - m6g.2xlarge
+      - m6g.4xlarge
+      - m6g.8xlarge
+      - m6g.12xlarge
+      - m6g.16xlarge
+      - m6g.metal
+      - m6gd.medium
+      - m6gd.large
+      - m6gd.xlarge
+      - m6gd.2xlarge
+      - m6gd.4xlarge
+      - m6gd.8xlarge
+      - m6gd.12xlarge
+      - m6gd.16xlarge
+      - m6gd.metal
+      - m6i.large
+      - m6i.xlarge
+      - m6i.2xlarge
+      - m6i.4xlarge
+      - m6i.8xlarge
+      - m6i.12xlarge
+      - m6i.16xlarge
+      - m6i.24xlarge
+      - m6i.32xlarge
+      - m6i.metal
+      - m6id.large
+      - m6id.xlarge
+      - m6id.2xlarge
+      - m6id.4xlarge
+      - m6id.8xlarge
+      - m6id.12xlarge
+      - m6id.16xlarge
+      - m6id.24xlarge
+      - m6id.32xlarge
+      - m6id.metal
+      - p2.xlarge
+      - p2.8xlarge
+      - p2.16xlarge
+      - p3.2xlarge
+      - p3.8xlarge
+      - p3.16xlarge
+      - p3dn.24xlarge
+      - p4d.24xlarge
+      - r3.large
+      - r3.xlarge
+      - r3.2xlarge
+      - r3.4xlarge
+      - r3.8xlarge
+      - r4.large
+      - r4.xlarge
+      - r4.2xlarge
+      - r4.4xlarge
+      - r4.8xlarge
+      - r4.16xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.2xlarge
+      - r5.4xlarge
+      - r5.8xlarge
+      - r5.12xlarge
+      - r5.16xlarge
+      - r5.24xlarge
+      - r5.metal
+      - r5a.large
+      - r5a.xlarge
+      - r5a.2xlarge
+      - r5a.4xlarge
+      - r5a.8xlarge
+      - r5a.12xlarge
+      - r5a.16xlarge
+      - r5a.24xlarge
+      - r5ad.large
+      - r5ad.xlarge
+      - r5ad.2xlarge
+      - r5ad.4xlarge
+      - r5ad.8xlarge
+      - r5ad.12xlarge
+      - r5ad.16xlarge
+      - r5ad.24xlarge
+      - r5b.large
+      - r5b.xlarge
+      - r5b.2xlarge
+      - r5b.4xlarge
+      - r5b.8xlarge
+      - r5b.12xlarge
+      - r5b.16xlarge
+      - r5b.24xlarge
+      - r5b.metal
+      - r5d.large
+      - r5d.xlarge
+      - r5d.2xlarge
+      - r5d.4xlarge
+      - r5d.8xlarge
+      - r5d.12xlarge
+      - r5d.16xlarge
+      - r5d.24xlarge
+      - r5d.metal
+      - r5dn.large
+      - r5dn.xlarge
+      - r5dn.2xlarge
+      - r5dn.4xlarge
+      - r5dn.8xlarge
+      - r5dn.12xlarge
+      - r5dn.16xlarge
+      - r5dn.24xlarge
+      - r5dn.metal
+      - r5n.large
+      - r5n.xlarge
+      - r5n.2xlarge
+      - r5n.4xlarge
+      - r5n.8xlarge
+      - r5n.12xlarge
+      - r5n.16xlarge
+      - r5n.24xlarge
+      - r5n.metal
+      - r6g.medium
+      - r6g.large
+      - r6g.xlarge
+      - r6g.2xlarge
+      - r6g.4xlarge
+      - r6g.8xlarge
+      - r6g.12xlarge
+      - r6g.16xlarge
+      - r6g.metal
+      - r6gd.medium
+      - r6gd.large
+      - r6gd.xlarge
+      - r6gd.2xlarge
+      - r6gd.4xlarge
+      - r6gd.8xlarge
+      - r6gd.12xlarge
+      - r6gd.16xlarge
+      - r6gd.metal
+      - r6i.large
+      - r6i.xlarge
+      - r6i.2xlarge
+      - r6i.4xlarge
+      - r6i.8xlarge
+      - r6i.12xlarge
+      - r6i.16xlarge
+      - r6i.24xlarge
+      - r6i.32xlarge
+      - r6i.metal
+      - r6id.large
+      - r6id.xlarge
+      - r6id.2xlarge
+      - r6id.4xlarge
+      - r6id.8xlarge
+      - r6id.12xlarge
+      - r6id.16xlarge
+      - r6id.24xlarge
+      - r6id.32xlarge
+      - r6id.metal
+      - t1.micro
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t2.xlarge
+      - t2.2xlarge
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - t3a.nano
+      - t3a.micro
+      - t3a.small
+      - t3a.medium
+      - t3a.large
+      - t3a.xlarge
+      - t3a.2xlarge
+      - t4g.nano
+      - t4g.micro
+      - t4g.small
+      - t4g.medium
+      - t4g.large
+      - t4g.xlarge
+      - t4g.2xlarge
+      - x1.16xlarge
+      - x1.32xlarge
+      - x1e.xlarge
+      - x1e.2xlarge
+      - x1e.4xlarge
+      - x1e.8xlarge
+      - x1e.16xlarge
+      - x1e.32xlarge
+      - x2gd.medium
+      - x2gd.large
+      - x2gd.xlarge
+      - x2gd.2xlarge
+      - x2gd.4xlarge
+      - x2gd.8xlarge
+      - x2gd.12xlarge
+      - x2gd.16xlarge
+      - x2gd.metal
+      - x2idn.16xlarge
+      - x2idn.24xlarge
+      - x2idn.32xlarge
+      - x2idn.metal
+      - x2iedn.xlarge
+      - x2iedn.2xlarge
+      - x2iedn.4xlarge
+      - x2iedn.8xlarge
+      - x2iedn.16xlarge
+      - x2iedn.24xlarge
+      - x2iedn.32xlarge
+      - x2iedn.metal
+      - x2iezn.2xlarge
+      - x2iezn.4xlarge
+      - x2iezn.6xlarge
+      - x2iezn.8xlarge
+      - x2iezn.12xlarge
+      - x2iezn.metal
+      - z1d.large
+      - z1d.xlarge
+      - z1d.2xlarge
+      - z1d.3xlarge
+      - z1d.6xlarge
+      - z1d.12xlarge
+      - z1d.metal
+    ConstraintDescription: Must be a valid EC2 instance type
+    Description: EC2 instance type.
+    Type: String
+  NumberOfNodes:
+    Default: 3
+    MinValue: 0
+    MaxValue: 450
+    Description: Number of Amazon EKS node instances. The default is one for each of the three Availability Zones.
+    Type: Number
+  MaxNumberOfNodes:
+    Default: 3
+    MinValue: 0
+    MaxValue: 450
+    Description: Maximum number of Amazon EKS node instances. The default is three.
+    Type: Number
+  ClusterAutoScaler:
+    Type: String
+    AllowedValues: [ Enabled, Disabled ]
+    Default: Disabled
+    Description: 'Choose "Enabled" to enable Kubernetes cluster autoscaler.'
+  GrafanaIntegration:
+    Type: String
+    AllowedValues: [ Enabled, Disabled ]
+    Default: Disabled
+    Description: 'Grafana requires "Prometheus integration" to be enabled. For more information see https://www.grafana.com/ .'
+  PrometheusIntegration:
+    Type: String
+    AllowedValues: [ Enabled, Disabled ]
+    Default: Disabled
+    Description: 'For more information see https://prometheus.io/ .'
+  NumberOfAZs:
+    Type: String
+    AllowedValues: ["2", "3"]
+    Default: "3"
+    Description: Number of Availability Zones to use in the VPC. This must match the value entered for the AvailabilityZones parameter.
+  FargateNamespaces:
+    Type: String
+    Default: ""
+    Description: "(Optional) Comma-separated list of namespaces for which Fargate should be enabled."
+  FargateLabels:
+    Type: String
+    Default: ""
+    Description: >-
+      (Optional) Requires at least one Fargate namespace to be specified. This is a comma-separated list of key-value pod labels.
+      For a pod to run on Fargate, all of the labels must match, and it must run in a namespace defined by
+      "Fargate namespaces."
+  EKSClusterName:
+    Type: String
+    Default: ""
+    Description: "(Optional) Name for the EKS cluster. If left blank, one is auto-generated. This must be unique within the Region."
+  PerAccountSharedResources:
+    Type: String
+    AllowedValues: ['AutoDetect', 'Yes', 'No']
+    Default: 'AutoDetect'
+    Description: Choose "No" if you already deployed another EKS Quick Start stack in your AWS account.
+  PerRegionSharedResources:
+    Type: String
+    AllowedValues: ['AutoDetect', 'Yes', 'No']
+    Default: 'AutoDetect'
+    Description: Choose "No" if you already deployed another EKS Quick Start stack in your Region.
+  NodeInstanceFamily:
+    Default: Standard
+    AllowedValues: ['Standard', 'ARM', 'GPU']
+    Type: String
+    Description: Choose the instance family to match the value of "Node instance type."
+  NodeGroupType:
+    Type: String
+    AllowedValues: [ Managed, Unmanaged ]
+    Default: Managed
+    Description: Choose "Unmanaged" to create an Auto Scaling group without using the EKS-managed node groups feature.
+  NodeGroupOS:
+    AllowedValues:
+      - 'Amazon Linux 2'
+      - 'Bottlerocket'
+      - 'Windows'
+    Default: 'Amazon Linux 2'
+    Description: Operating system to use for node instances. Choose "Bottlerocket" for the Amazon purpose-built container OS
+      (unmanaged node groups only). Note that if you choose "Windows," an additional Amazon Linux node group is created.
+    Type: String
+  StorageCapacity:
+    Description: Specify the storage capacity of the file system being created in GB
+    Type: Number
+    Default: 1024
+  OntapPassword:
+    Description: Enter the password to be used for accessing FSxN via 'fsxadmin' user
+    Type: String
+    NoEcho: True
+Conditions:
+  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
+Resources:
+  EKSCFTStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-entrypoint-new-vpc.template.yaml'
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        AvailabilityZones: !Join [",", !Ref AvailabilityZones]
+        RemoteAccessCIDR: !Ref RemoteAccessCIDR
+        KeyPairName: !Ref KeyPairName
+        PerAccountSharedResources: !Ref PerAccountSharedResources
+        PerRegionSharedResources: !Ref PerRegionSharedResources
+        NumberOfAZs: !Ref NumberOfAZs
+        VPCCIDR: !Ref VPCCIDR
+        PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
+        PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
+        PrivateSubnet3CIDR: !Ref PrivateSubnet3CIDR
+        PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
+        PublicSubnet2CIDR: !Ref PublicSubnet2CIDR
+        PublicSubnet3CIDR: !Ref PublicSubnet3CIDR
+        ProvisionBastionHost: "Enabled"
+        EKSClusterName: !Ref EKSClusterName
+        EKSPublicAccessEndpoint: !Ref EKSPublicAccessEndpoint
+        FargateNamespaces: !Ref FargateNamespaces
+        FargateLabels: !Ref FargateLabels
+        NodeInstanceType: !Ref NodeInstanceType
+        NumberOfNodes: !Ref NumberOfNodes
+        MaxNumberOfNodes: !Ref MaxNumberOfNodes
+        NodeInstanceFamily: !Ref NodeInstanceFamily
+        NodeGroupType: !Ref NodeGroupType
+        NodeGroupOS: !Ref NodeGroupOS
+        ClusterAutoScaler: !Ref ClusterAutoScaler
+        GrafanaIntegration: !Ref GrafanaIntegration
+        PrometheusIntegration: !Ref PrometheusIntegration
+        QSS3BucketName: !Ref QSS3BucketName
+        QSS3KeyPrefix: !Ref QSS3KeyPrefix
+        QSS3BucketRegion: !Ref QSS3BucketRegion
+
+
+  InternalLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'internal-lambda-role'
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: 'internal-policy'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeInstances
+                Resource: '*'
+
+  CustomInternalFunction:
+    Type: AWS::Lambda::Function 
+    Properties:
+      Handler: index.lambda_handler
+      Description: "Gets variable values from EKS CFT Stack needed for other resources"
+      Timeout: 60
+      Role: !GetAtt 'InternalLambdaRole.Arn'
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info('got event {}'.format(event))
+              try:
+                  responseData = {}
+                  if event['RequestType'] == 'Delete':
+                      logger.info('Incoming RequestType: Delete operation')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      
+                  if event['RequestType'] in ["Create", "Update"]:
+                      
+                      #Set init vars
+                      vpc_cidr = event['ResourceProperties']['VPCCIDR']
+                      aws_region = event['ResourceProperties']['Region']
+                      private_subnet_1_cidr = event['ResourceProperties']['PrivateSubnet1CIDR']
+                      private_subnet_2_cidr = event['ResourceProperties']['PrivateSubnet2CIDR']
+                      public_subnet_1_cidr = event['ResourceProperties']['PublicSubnet1CIDR']
+
+                      #initialize boto client
+                      client = boto3.client('ec2', region_name=aws_region)
+
+                      #get and process vpc list
+                      paginator = client.get_paginator('describe_vpcs')
+                      response_iterator = paginator.paginate()
+                      full_result = response_iterator.build_full_result()
+                  
+                      vpc_list = []
+                  
+                      for page in full_result['Vpcs']:
+                          vpc_list.append(page)
+                      
+                      #filter vpc for cidr used from user input
+                      for vpc in vpc_list:
+                        if vpc['CidrBlock'] == vpc_cidr:
+                          for j in vpc['Tags']:
+                            if (("aws:cloudformation:stack-name" in j['Key']) and ("VPCStack" in j['Value'])):
+                              responseData["VpcId"] = vpc["VpcId"]
+                      
+                      #get and process subnets
+                      subnet_resp = client.describe_subnets()['Subnets']
+                      subnet_array = []
+                      for i in subnet_resp:
+                          if i["VpcId"] == responseData["VpcId"]:
+                              subnet_array.append(i)
+                      
+                      for i in subnet_array:
+                          if i["CidrBlock"] == private_subnet_1_cidr:
+                              responseData["PrivateSubnet1ID"] = i["SubnetId"]
+                              logger.info('Retrieved Private Subnet 1 ID!')
+                          if i["CidrBlock"] == private_subnet_2_cidr:
+                              responseData["PrivateSubnet2ID"] = i["SubnetId"]
+                              logger.info('Retrieved Private Subnet 2 ID!')
+                          if i["CidrBlock"] == public_subnet_1_cidr:
+                              responseData["PublicSubnet1ID"] = i["SubnetId"]
+                              logger.info('Retrieved Public Subnet 1 ID!')
+                      
+                      #get bastion host security group id
+                      security_group_response = client.describe_security_groups()["SecurityGroups"]
+                      print(security_group_response)
+                      
+                      for i in security_group_response:                          
+                          if "Enables access to bastion hosts" in i["Description"]:
+                              responseData["BastionHostSecurityGroupID"] = i["GroupId"]
+                              logger.info('Retrieved Bastion Host Security Group ID!')
+                      
+                      #get eks primary security group
+                      for i in security_group_response:
+                          if "EKS created security group applied to ENI that is attached to EKS Control Plane" in i["Description"]:
+                              responseData["EksSecurityGroupID"] = i["GroupId"]
+                              logger.info('Retrieved EKS Primary Security Group ID!')
+
+                      #get bastion host subnet route table id
+                      response = client.describe_route_tables(Filters=[{ 'Name': 'association.subnet-id', 'Values': [responseData["PublicSubnet1ID"]]}])
+                      responseData['BastionHostSubnetRouteTableId'] = response['RouteTables'][0]['Associations'][0]['RouteTableId']
+                      logger.info('Retrieved Bastion Host Subnet Route Table ID!')
+
+                      #get private subnet 1 route table id
+                      response_private_subnet_1 = client.describe_route_tables(Filters=[{ 'Name': 'association.subnet-id', 'Values': [responseData["PrivateSubnet1ID"]]}])
+                      responseData['PrivateSubnet1RouteTableId'] = response_private_subnet_1['RouteTables'][0]['Associations'][0]['RouteTableId']
+                      logger.info('Retrieved Private Subnet 1 Route Table ID!')
+
+                      #get private subnet 2 route table id
+                      response_private_subnet_2 = client.describe_route_tables(Filters=[{ 'Name': 'association.subnet-id', 'Values': [responseData["PrivateSubnet2ID"]]}])
+                      responseData['PrivateSubnet2RouteTableId'] = response_private_subnet_2['RouteTables'][0]['Associations'][0]['RouteTableId']
+                      logger.info('Retrieved Private Subnet 2 Route Table ID!')
+
+                      #get bastion host instance id
+                      ec2_resource = boto3.resource('ec2')
+                      instances = ec2_resource.instances.filter()
+                      for instance in instances:
+                          for tag in instance.tags:
+                              if tag['Key'] == 'Name' and tag['Value'] == 'EKSBastion':
+                                  responseData['BastionHostInstanceId'] = instance.id
+                                  logger.info('Retrieved Bastion Host Instance ID!')
+
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                      
+                  else:
+                      logger.info('Unexpected RequestType!')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as err:
+                logger.error(err)
+                responseData = {"Data": str(err)}
+                cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+              return
+
+  CustomInternalResource:
+    Type: Custom::CustomResource
+    DependsOn:
+      - EKSCFTStack
+    DeletionPolicy: Retain
+    Properties:
+      ServiceToken: !GetAtt CustomInternalFunction.Arn
+      VPCCIDR: !Ref VPCCIDR
+      PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
+      PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
+      PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
+      Region: !Ref 'AWS::Region'
+
+  FSxOntapSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: CustomInternalResource
+    Properties:
+      VpcId: !Sub "${CustomInternalResource.VpcId}"
+      GroupDescription: FSx ONTAP Security Group
+      GroupName: 'fsx-ontap-sg'
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          Description: ICMP Ping
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          Description: SSH access to cluster or node management LIF
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 111
+          ToPort: 111
+          Description: Remote procedure call for NFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 111
+          ToPort: 111
+          Description: Remote procedure call for NFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 135
+          ToPort: 135
+          Description: Remote procedure call for CIFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 135
+          ToPort: 135
+          Description: Remote procedure call for CIFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 137
+          ToPort: 137
+          Description: NetBIOS name resolution for CIFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 139
+          ToPort: 139
+          Description: NetBIOS service session for CIFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 139
+          ToPort: 139
+          Description: NetBIOS service session for CIFS
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 161
+          ToPort: 162
+          Description: SNMP
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 161
+          ToPort: 162
+          Description: SNMP
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          Description: ONTAP REST API access for cluster management LIF or SVM management LIF
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 635
+          ToPort: 635
+          Description: NFS mount
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 635
+          ToPort: 635
+          Description: NFS mount
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 749
+          ToPort: 749
+          Description: Kerberos
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          Description: NFS server daemon
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 2049
+          ToPort: 2049
+          Description: NFS server daemon
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 3260
+          ToPort: 3260
+          Description: iSCSI to the iSCSI data LIF
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 4045
+          ToPort: 4045
+          Description: NFS lock daemon
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 4045
+          ToPort: 4045
+          Description: NFS lock daemon
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 4046
+          ToPort: 4046
+          Description: NFS network status monitor
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 4046
+          ToPort: 4046
+          Description: NFS network status monitor
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: udp
+          FromPort: 4049
+          ToPort: 4049
+          Description: NFS quota protocol
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 10000
+          ToPort: 10000
+          Description: NDMP and NetApp SnapMirror
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 11104
+          ToPort: 11104
+          Description: NetApp SnapMirror management
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: tcp
+          FromPort: 11105
+          ToPort: 11105
+          Description: NetApp SnapMirror data transfer
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.BastionHostSecurityGroupID}"
+        - IpProtocol: -1
+          SourceSecurityGroupId: !Sub "${CustomInternalResource.EksSecurityGroupID}"
+  
+  FSxFileSystem:
+    Type: AWS::FSx::FileSystem
+    Properties:
+      FileSystemType: ONTAP
+      StorageCapacity: !Ref StorageCapacity
+      SubnetIds:
+        - !Sub "${CustomInternalResource.PrivateSubnet1ID}"
+        # - !Sub "${CustomInternalResource.PrivateSubnet2ID}"
+      SecurityGroupIds:
+        - !Ref FSxOntapSecurityGroup
+      OntapConfiguration:
+        DeploymentType: SINGLE_AZ_1
+        PreferredSubnetId: !Sub "${CustomInternalResource.PrivateSubnet1ID}"
+        FsxAdminPassword: !Ref OntapPassword
+        ThroughputCapacity: 128
+
+  StorageVirtualMachine:
+    Type: AWS::FSx::StorageVirtualMachine
+    Properties:
+      FileSystemId: !Ref FSxFileSystem
+      Name: 'svm1'
+      RootVolumeSecurityStyle: NTFS
+
+  CustomFsxLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'custom-fsx-lambda-role'
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: 'custom-fsx-policy'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - fsx:DescribeFileSystems
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - fsx:DescribeStorageVirtualMachines
+                Resource:
+                  - !Sub arn:aws:fsx:${AWS::Region}:${AWS::AccountId}:storage-virtual-machine/*/*
+
+  CustomFsxLambdaFunction:
+    Type: AWS::Lambda::Function 
+    Properties:
+      Handler: index.lambda_handler
+      Description: "Gets FsxN ENI IDs for adding route from Bastion host to FSxN"
+      Timeout: 10
+      Role: !GetAtt 'CustomFsxLambdaRole.Arn'
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info('got event {}'.format(event))
+              try:
+                  responseData = {}
+                  if event['RequestType'] == 'Delete':
+                      logger.info('Incoming RequestType: Delete operation')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      
+                  if event['RequestType'] in ["Create", "Update"]:
+                      
+                      #Set init vars
+                      fsx_id = event['ResourceProperties']['FSxFileSystemId']
+                      svm_id = event['ResourceProperties']['StorageVirtualMachineId']
+
+                      #initialize boto client
+                      fsx_client = boto3.client('fsx')
+
+                      #get eni ids for fsxn
+                      responseFs = fsx_client.describe_file_systems(FileSystemIds=[fsx_id])
+                      responseData['FSxMgmtIP'] = responseFs.get('FileSystems')[0].get('OntapConfiguration').get('Endpoints').get('Management').get('IpAddresses')[0]
+
+                      responseData['FSxNwIf1'] = responseFs.get('FileSystems')[0].get('NetworkInterfaceIds')[0]
+                      responseData['FSxNwIf2'] = responseFs.get('FileSystems')[0].get('NetworkInterfaceIds')[1]
+ 
+                      logger.info('Retrieved FSxN Interface IDs!')
+
+                      #get fsxn svm ip and svm name
+                      response_svm = fsx_client.describe_storage_virtual_machines(StorageVirtualMachineIds=[svm_id], Filters=[{'Name': 'file-system-id','Values': [fsx_id,]},])
+                      responseData['SVMMgmtIP'] = response_svm.get('StorageVirtualMachines')[0].get('Endpoints').get('Management').get('IpAddresses')[0]
+                      responseData['SVMName']= response_svm.get('StorageVirtualMachines')[0].get('Name')
+                      logger.info('Retrieved FSxN SVM Details!')
+
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                      
+                  else:
+                      logger.info('Unexpected RequestType!')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as err:
+                logger.error(err)
+                responseData = {"Data": str(err)}
+                cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+              return
+
+  CustomFsxLambdaResource:
+    Type: Custom::CustomResource
+    DependsOn:
+      - EKSCFTStack
+    DeletionPolicy: Retain
+    Properties:
+      ServiceToken: !GetAtt CustomFsxLambdaFunction.Arn
+      FSxFileSystemId: !Ref FSxFileSystem
+      StorageVirtualMachineId: !Ref StorageVirtualMachine
+
+  CustomTridentSetupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'custom-trident-setup-lambda-role'
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: 'custom-trident-setup-policy'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource: 
+                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${CustomInternalResource.BastionHostInstanceId}
+                  - !Sub arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                Resource: 
+                  - !Sub arn:aws:ssm:${AWS::Region}:982589175402:*
+
+  CustomTridentSetupLambdaFunction:
+    Type: AWS::Lambda::Function 
+    Properties:
+      Handler: index.lambda_handler
+      Description: "Install and setup trident"
+      Timeout: 900
+      Role: !GetAtt 'CustomTridentSetupLambdaRole.Arn'
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          import time
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info('got event {}'.format(event))
+              try:
+                  responseData = {}
+                  if event['RequestType'] == 'Delete':
+                      logger.info('Incoming RequestType: Delete operation')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      
+                  if event['RequestType'] in ["Create", "Update"]:
+                      
+                      #Set init vars
+                      bastion_instance_id = event['ResourceProperties']['BastionHostInstanceId']
+                      fsx_mgmt_ip = event['ResourceProperties']['FSxMgmtIP']
+                      svm_mgmt_ip = event['ResourceProperties']['SVMMgmtIP']
+                      svm_name = event['ResourceProperties']['SVMName']
+                      ontap_password = event['ResourceProperties']['OntapPassword']
+
+                      #initialize boto client
+                      ssm_client = boto3.client('ssm')
+
+                      nas_backend_file_cmd = 'echo "{ "version": 1, "storageDriverName": "ontap-nas", "backendName": "trident-fsxn-nas-backend", "managementLIF": "' + fsx_mgmt_ip + '", "dataLIF": "' + svm_mgmt_ip + '", "svm": "' + svm_name + '", "username": "fsxadmin", "password": "' + ontap_password + '" }" > /home/ssm-user/nas-storage-backend-config.json'
+                      san_backend_file_cmd = 'echo "{ "version": 1, "storageDriverName": "ontap-san", "backendName": "trident-fsxn-san-backend", "managementLIF": "' + fsx_mgmt_ip + '", "dataLIF": "' + svm_mgmt_ip + '", "svm": "' + svm_name + '", "username": "fsxadmin", "password": "' + ontap_password + '" }" > /home/ssm-user/san-storage-backend-config.json'
+
+                      command_list = [
+                                      'echo "running cd /home/ssm-user"',
+                                      'cd /home/ssm-user',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to run cd /home/ssm-user" ; exit 2 ; fi',
+                                      'echo "Getting Trident Installer from web"',
+                                      'wget https://github.com/NetApp/trident/releases/download/v23.04.0/trident-installer-23.04.0.tar.gz',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to get the trident installer package" ; exit 2 ; fi',
+                                      'echo "unpacking trident installer"',
+                                      'tar -xf /home/ssm-user/trident-installer-23.04.0.tar.gz',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to untar trident installer package" ; exit 2 ; fi',
+                                      'echo "running cd trident-installer"',
+                                      'cd /home/ssm-user/trident-installer',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to run cd /home/ssm-user/trident-installer" ; exit 2 ; fi',
+                                      'echo "installing tridentctl"',
+                                      'runuser -l ssm-user -c "/home/ssm-user/trident-installer/tridentctl install -n trident"',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to install trident" ; exit 2 ; fi',
+                                      nas_backend_file_cmd,
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create NAS backend-storage file" ; exit 2 ; fi',
+                                      'runuser -l ssm-user -c "/home/ssm-user/trident-installer/tridentctl -n trident create backend -f /home/ssm-user/nas-storage-backend-config.json"',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create NAS storage backend" ; exit 2 ; fi',
+                                      san_backend_file_cmd,
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create SAN backend-storage file" ; exit 2 ; fi',
+                                      'runuser -l ssm-user -c "/home/ssm-user/trident-installer/tridentctl -n trident create backend -f /home/ssm-user/san-storage-backend-config.json"',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create SAN storage backend" ; exit 2 ; fi',
+                                      'echo "apiVersion: storage.k8s.io/v1" > ./fsxn-storage-class.yaml',
+                                      'echo "kind: StorageClass" >> ./fsxn-storage-class.yaml',
+                                      'echo "metadata:" >> ./fsxn-storage-class.yaml',
+                                      'echo "  name: fsxn-sc" >> ./fsxn-storage-class.yaml',
+                                      'echo "provisioner: csi.trident.netapp.io" >> ./fsxn-storage-class.yaml',
+                                      'echo "parameters:" >> ./fsxn-storage-class.yaml',
+                                      'echo "  backendType: \\"ontap-nas\\"" >> ./fsxn-storage-class.yaml',
+                                      'echo "  fsType: \\"nfs\\"" >> ./fsxn-storage-class.yaml',
+                                      'echo "allowVolumeExpansion: true" >> ./fsxn-storage-class.yaml',
+                                      'echo "mountOptions:" >> ./fsxn-storage-class.yaml',
+                                      'echo "  - nconnect=16" >> ./fsxn-storage-class.yaml',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create storage class file" ; exit 2 ; fi',
+                                      'runuser -l ssm-user -c "kubectl create -f /home/ssm-user/trident-installer/fsxn-storage-class.yaml"',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create storage class" ; exit 2 ; fi',
+                                      'echo "kind: PersistentVolumeClaim" > ./fsxn-pvc.yaml',
+                                      'echo "apiVersion: v1" >> ./fsxn-pvc.yaml',
+                                      'echo "metadata:" >> ./fsxn-pvc.yaml',
+                                      'echo "  name: fsxn-pvc" >> ./fsxn-pvc.yaml',
+                                      'echo "spec:" >> ./fsxn-pvc.yaml',
+                                      'echo "  accessModes:" >> ./fsxn-pvc.yaml',
+                                      'echo "    - ReadWriteMany" >> ./fsxn-pvc.yaml',
+                                      'echo "  resources:" >> ./fsxn-pvc.yaml',
+                                      'echo "    requests:" >> ./fsxn-pvc.yaml',
+                                      'echo "      storage: 100Gi" >> ./fsxn-pvc.yaml',
+                                      'echo "  storageClassName: fsxn-sc" >> ./fsxn-pvc.yaml',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create PVC file" ; exit 2 ; fi',
+                                      'runuser -l ssm-user -c "kubectl create -f /home/ssm-user/trident-installer/fsxn-pvc.yaml"',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create PVC" ; exit 2 ; fi',
+                                      'echo "apiVersion: apps/v1" > ./sample-app-deployment-service.yaml',
+                                      'echo "kind: Deployment" >> ./sample-app-deployment-service.yaml',
+                                      'echo "metadata:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  name: sample-app-deployment" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  labels:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    app: sample-app" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    deploymethod: trident" >> ./sample-app-deployment-service.yaml',
+                                      'echo "spec:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  replicas: 1" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  selector:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    matchLabels:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "      app: sample-app" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  template:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    metadata:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "      labels:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        app: sample-app" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        deploymethod: trident" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    spec:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "      containers:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "      - name: sample-app" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        image: tdhruv757/image-server-app:latest" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        ports:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        - containerPort: 80" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        volumeMounts:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        - name: disk01" >> ./sample-app-deployment-service.yaml',
+                                      'echo "          mountPath: /var/lib/anfvol" >> ./sample-app-deployment-service.yaml',
+                                      'echo "      volumes:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "      - name: disk01" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        persistentVolumeClaim:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "          claimName: fsxn-pvc" >> ./sample-app-deployment-service.yaml',
+                                      'echo "---" >> ./sample-app-deployment-service.yaml',
+                                      'echo "apiVersion: v1" >> ./sample-app-deployment-service.yaml',
+                                      'echo "kind: Service" >> ./sample-app-deployment-service.yaml',
+                                      'echo "metadata:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  labels:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    app: sample-app" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  name: sample-app-svc" >> ./sample-app-deployment-service.yaml',
+                                      'echo "spec:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  ports:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  - port: 80" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    protocol: TCP" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    targetPort: 80" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  selector:" >> ./sample-app-deployment-service.yaml',
+                                      'echo "    app: sample-app" >> ./sample-app-deployment-service.yaml',
+                                      'echo "  type: LoadBalancer" >> ./sample-app-deployment-service.yaml',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create sample-app-deployment file" ; exit 2 ; fi',
+                                      'runuser -l ssm-user -c "kubectl create -f /home/ssm-user/trident-installer/sample-app-deployment-service.yaml"',
+                                      'if ! [ $? -eq 0 ]; then echo "Failed to create sample-app deployment/service" ; exit 2 ; fi',
+                                    ]
+                      
+                      response_ssm = ssm_client.send_command(InstanceIds=[bastion_instance_id], DocumentName="AWS-RunShellScript", Parameters={'commands': command_list}, CloudWatchOutputConfig={ 'CloudWatchOutputEnabled': True})
+                      
+                      time.sleep(10)
+                      command_id = response_ssm.get('Command').get('CommandId')
+                      time.sleep(10)
+                      ssm_command_output = ssm_client.get_command_invocation( CommandId= command_id, InstanceId= bastion_instance_id)
+                      ssm_command_status = ssm_command_output.get('StandardOutputContent')
+                      if "error" in ssm_command_status.lower():
+                        logger.error("Error with trident installation and setup")
+                        responseData = {"Data": ssm_command_status}
+                        cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+
+                      logger.info('Commands run successfully!')
+
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                      
+                  else:
+                      logger.info('Unexpected RequestType!')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as err:
+                logger.error(err)
+                responseData = {"Data": str(err)}
+                cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+              return
+
+  CustomTridentSetupLambdaResource:
+    Type: Custom::CustomResource
+    DependsOn:
+      - EKSCFTStack
+    DeletionPolicy: Retain
+    Properties:
+      ServiceToken: !GetAtt CustomTridentSetupLambdaFunction.Arn
+      BastionHostInstanceId: !Sub "${CustomInternalResource.BastionHostInstanceId}"
+      FSxMgmtIP: !Sub "${CustomFsxLambdaResource.FSxMgmtIP}"
+      SVMMgmtIP: !Sub "${CustomFsxLambdaResource.SVMMgmtIP}"
+      SVMName: !Sub "${CustomFsxLambdaResource.SVMName}"
+      OntapPassword: !Ref OntapPassword
+
