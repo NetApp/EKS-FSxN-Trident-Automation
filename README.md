@@ -1,8 +1,8 @@
-# Deploy EKS with FSxN using NetApp Astra Trident CSI automated using AWS CloudFormation template
+# Deploy EKS with FSxN using NetApp Astra Trident CSI automated using AWS CloudFormation
 
 EKS (Elastic Kubernetes Service) is a first-party managed kubernetes offering by AWS allowing for quick and easy setup of the kubernetes cluster. AWS creates and configures the control plane automatically when a new EKS cluster is provisioned.
 
-FSxN (FSx for NetAPP ONTAP) is a high-performance, enterprise-class, metered file-storage service. Follow the steps in this documentation to provision and configure FSx for NetApp ONTAP as a persistent volume (PV) option for applications running on the EKS cluster.
+FSxN (FSx for NetApp ONTAP) is a high-performance, enterprise-class, metered file-storage service. Follow the steps in this documentation to provision and configure FSx for NetApp ONTAP as a persistent volume (PV) option for applications running on the EKS cluster.
 
 Astra Trident is an open-source and fully supported storage orchestrator for containers and Kubernetes distributions, including Red Hat OpenShift. Trident works with the entire NetApp storage portfolio and also supports NFS and iSCSI connections. Trident accelerates the DevOps workflow by allowing end users to provision and manage storage from their NetApp storage systems without requiring intervention from a storage administrator.
 
@@ -11,8 +11,8 @@ This solution aims to provide a one-touch option for users looking to deploy EKS
 ## Features
 The solution provides the following features:
 
-* Deploy an EKS Cluster
-* Deploy FSxN in HA mode across 2 regions
+* Deploy an EKS Cluster using AWS Quick Start (https://aws-quickstart.github.io/quickstart-amazon-eks/)
+* Deploy FSxN File System and Storage Virtual Machine (SVM)
 * Install and configure Astra Trident
 * Deploy a sample application to showcase the integration works end-to-end
 

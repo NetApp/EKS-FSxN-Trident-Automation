@@ -120,8 +120,7 @@ Metadata:
         default: Storage capacity
 Parameters:
   AvailabilityZones:
-    Description: List of Availability Zones to use for the subnets in the VPC. Three
-      Availability Zones are used for this deployment.
+    Description: List of Availability Zones to use for the subnets in the VPC.
     Type: List<AWS::EC2::AvailabilityZone::Name>
   # NOTE: Don't change the type of KeyPairName parameter back to AWS::EC2::KeyPair::KeyName.
   # String type is intentional as it enables default (empty) value. By using defaults, we
