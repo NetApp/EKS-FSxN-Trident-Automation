@@ -55,9 +55,12 @@ Metadata:
         Parameters:
           - StorageCapacity
           - OntapPassword
+          - FsxnDeploymentType
     ParameterLabels:
       OntapPassword:
         default: Password for FSxN fsxadmin user
+      FsxnDeploymentType:
+        default: Deployment Type
       AvailabilityZones:
         default: Availability Zones
       KeyPairName:
@@ -846,6 +849,11 @@ Parameters:
     Description: Enter the password to be used for accessing FSxN via 'fsxadmin' user
     Type: String
     NoEcho: True
+  FsxnDeploymentType:
+    Description: Choose the deployment type (Single/Multi AZ). Ensure Multi-AZ is supported by AWS in the specific region before selecting.
+    Type: String
+    Default: SINGLE_AZ_1
+    AllowedValues: [ SINGLE_AZ_1, MULTI_AZ_1] 
 Conditions:
   UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
 Resources:
@@ -1217,7 +1225,7 @@ Resources:
       SecurityGroupIds:
         - !Ref FSxOntapSecurityGroup
       OntapConfiguration:
-        DeploymentType: SINGLE_AZ_1
+        DeploymentType: !Ref FsxnDeploymentType
         PreferredSubnetId: !Sub "${CustomInternalResource.PrivateSubnet1ID}"
         FsxAdminPassword: !Ref OntapPassword
         ThroughputCapacity: 128

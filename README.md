@@ -12,7 +12,7 @@ This solution aims to provide a one-touch option for users looking to deploy EKS
 The solution provides the following features:
 
 * Deploy an EKS Cluster using AWS Quick Start (https://aws-quickstart.github.io/quickstart-amazon-eks/)
-* Deploy FSxN File System and Storage Virtual Machine (SVM)
+* Deploy FSxN File System and Storage Virtual Machine (SVM) with the option for HA deployment
 * Install and configure Astra Trident
 * Deploy a sample application to showcase the integration works end-to-end
 
