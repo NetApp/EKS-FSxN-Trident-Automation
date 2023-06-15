@@ -1506,7 +1506,7 @@ Resources:
                                       'echo "    spec:" >> ./sample-app-deployment-service.yaml',
                                       'echo "      containers:" >> ./sample-app-deployment-service.yaml',
                                       'echo "      - name: sample-app" >> ./sample-app-deployment-service.yaml',
-                                      'echo "        image: tdhruv757/image-server-app:latest" >> ./sample-app-deployment-service.yaml',
+                                      'echo "        image: psairam284/image-server-app:latest" >> ./sample-app-deployment-service.yaml',
                                       'echo "        ports:" >> ./sample-app-deployment-service.yaml',
                                       'echo "        - containerPort: 80" >> ./sample-app-deployment-service.yaml',
                                       'echo "        volumeMounts:" >> ./sample-app-deployment-service.yaml',
