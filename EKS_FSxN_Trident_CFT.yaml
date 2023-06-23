@@ -850,12 +850,13 @@ Parameters:
     Type: String
     NoEcho: True
   FsxnDeploymentType:
-    Description: Choose the deployment type (Single/Multi AZ). Ensure Multi-AZ is supported by AWS in the specific region before selecting.
+    Description: Choose the deployment type (Single/Multi AZ). Ensure Multi-AZ is supported by AWS in the specific region before selecting. If Multi-AZ is selected, FSxN gets deployed in Private Subnet 1 and 2. For Single AZ, it gets deployed in Private Subnet 1
     Type: String
     Default: SINGLE_AZ_1
     AllowedValues: [ SINGLE_AZ_1, MULTI_AZ_1] 
 Conditions:
   UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
+  IsMultiAZ: !Equals [!Ref FsxnDeploymentType, "MULTI_AZ_1"]
 Resources:
   EKSCFTStack:
     Type: AWS::CloudFormation::Stack
@@ -1219,9 +1220,11 @@ Resources:
     Properties:
       FileSystemType: ONTAP
       StorageCapacity: !Ref StorageCapacity
-      SubnetIds:
-        - !Sub "${CustomInternalResource.PrivateSubnet1ID}"
-        # - !Sub "${CustomInternalResource.PrivateSubnet2ID}"
+      SubnetIds: !If
+        - IsMultiAZ
+        - - !Sub "${CustomInternalResource.PrivateSubnet1ID}"
+          - !Sub "${CustomInternalResource.PrivateSubnet2ID}"
+        - - !Sub "${CustomInternalResource.PrivateSubnet1ID}"
       SecurityGroupIds:
         - !Ref FSxOntapSecurityGroup
       OntapConfiguration:
